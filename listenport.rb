@@ -32,7 +32,7 @@ Options:
                              チェックモードオンは再起動後にチェックするために使います。
 
   -i, --input=FILE           チェックモードオンの時、前回出力したファイルを指定します。
-                             チェックモードオンの場合は必須です。
+                             このオプションを指定しない場合は標準入力から読み込みます。
 
   -o, --ooutput=FILE         チェックモードオフの時、収集した情報を出力します。
                              このオプションを指定しない場合は標準出力に出力します。
@@ -141,8 +141,8 @@ def collect(args)
   end
 end
 
-def readjson(file)
-  ports = JSON.parse(File.read(file), symbolize_names: true)
+def readjson(f)
+  ports = JSON.parse(f.read, symbolize_names: true)
   ports.each do |port|
     port[:type] = port[:type].to_sym
   end
@@ -154,7 +154,9 @@ if args[:checkmode] == false
   f.puts format(ports, args[:pretty])
   f.close if args[:ofile]
 else
-  prev = readjson(args[:ifile])
+  f = args[:ifile] ? File.open(args[:ifile]) : STDIN
+  prev = readjson(f)
+  f.close if args[:ifile]
   curr = ports
   notfounds = []
   prev.each do |pport|
