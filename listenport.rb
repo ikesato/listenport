@@ -32,12 +32,15 @@ Options:
                              チェックモードオンは再起動後にチェックするために使います。
 
   -i, --input=FILE           チェックモードオンの時、前回出力したファイルを指定します。
+                             チェックモードオフの時はここで指定したファイルを読み込み出力します。
                              このオプションを指定しない場合は標準入力から読み込みます。
 
   -o, --ooutput=FILE         チェックモードオフの時、収集した情報を出力します。
                              このオプションを指定しない場合は標準出力に出力します。
 
   --pretty                   人間に読みやすい形式で出力します。
+                             このオプションをつけて出力したファイルをチェックモードで使用することはできません。
+  --pretty                   詳細情報を出力します。
                              このオプションをつけて出力したファイルをチェックモードで使用することはできません。
 
 デフォルトでは TCP,UDP ポートを調べます。
@@ -56,6 +59,7 @@ args[:checkmode] = false
 args[:ifile] = nil
 args[:ofile] = nil
 args[:pretty] = false
+args[:detail] = false
 OptionParser.new { |opt|
   opt.on("-x", "--unix-socket=SOCKETPATHS") {|v|
     args[:unix_sockets] += v.split(/,/).map(&:strip)
@@ -67,6 +71,7 @@ OptionParser.new { |opt|
   opt.on("-i", "--input==FILE") {|v| args[:ifile] = v}
   opt.on("-o", "--output==FILE") {|v| args[:ofile] = v}
   opt.on("--pretty") {|v| args[:pretty] = true}
+  opt.on("--detail") {|v| args[:detail] = true}
   opt.on("-h", "--help") {usage(args)}
   opt.parse!(ARGV)
 }
@@ -76,17 +81,22 @@ def filter(h, args)
   false
 end
 
-def format(ports, pretty=false)
-  return ports.to_json if !pretty
-  lines = []
-  lines << "TYPE  PORT BINDIP            PID USER       PROGRAM          PATH"
-  ports.each do |port|
-    type = port[:type].to_s
-    type += "6" if port[:ipv6]
-    lines << sprintf("%-5s%5s %-15.15s %5s %-10.10s %-16.16s %s",
-                     type, port[:port], port[:bindip], port[:pid], port[:owner], port[:program], port[:path])
+def format(ports, format)
+  if format == :json
+    ports.to_json
+  elsif format == :pretty
+    lines = []
+    lines << "TYPE  PORT BINDIP            PID USER       PROGRAM          PATH"
+    ports.each do |port|
+      type = port[:type].to_s
+      type += "6" if port[:ipv6]
+      lines << sprintf("%-5s%5s %-15.15s %5s %-10.10s %-16.16s %s",
+                       type, port[:port], port[:bindip], port[:pid], port[:owner], port[:program], port[:path])
+    end
+    lines.join("\n")
+  elsif format == :detail
+    format_detail(ports)
   end
-  lines.join("\n")
 end
 
 def format_detail(ports)
@@ -148,12 +158,18 @@ def readjson(f)
   end
 end
 
-ports = collect(args)
 if args[:checkmode] == false
+  if args[:ifile]
+    f = args[:ifile] ? File.open(args[:ifile]) : STDIN
+    ports = readjson(f)
+  else
+    ports = collect(args)
+  end
   f = args[:ofile] ? File.open(args[:ofile], "w") : STDOUT
-  f.puts format(ports, args[:pretty])
+  f.puts format(ports, (args[:pretty] ? :pretty : (args[:detail] ? :detail : :json)))
   f.close if args[:ofile]
 else
+  ports = collect(args)
   f = args[:ifile] ? File.open(args[:ifile]) : STDIN
   prev = readjson(f)
   f.close if args[:ifile]
@@ -171,7 +187,7 @@ else
     notfounds << pport if res.nil?
   end
   unless notfounds.empty?
-    puts "Error: Ports doesn't exists."
+    puts "Error: Following ports doesn't exists."
     puts
     puts format_detail(notfounds)
     exit 1
